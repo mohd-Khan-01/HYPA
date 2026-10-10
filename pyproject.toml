@@ -1,0 +1,19 @@
+[project]
+name = "hypa"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "mohd-khan-01", email = "rayyans.pf@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic-ai>=2.42.0",
+]
+
+[project.scripts]
+hypa = "hypa:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
