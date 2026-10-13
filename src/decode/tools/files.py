@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic_ai import RunContext,ModelRetry
+from pydantic_ai import ApprovalRequired, ModelRetry, RunContext
 from decode.agent.deps import AgentDeps
 import logging
 from decode.config.settings import settings
@@ -7,12 +7,17 @@ from decode.tools.truncate import truncate
 logger=logging.getLogger(__name__)
 from decode.tools.approval import needs_approval
 
-def _resolve_in_cwd(cwd:Path,path:str)->Path:
-    target=(cwd/path).resolve()
+def _resolve_in_cwd(cwd: Path, path: str) -> Path:
+    base = cwd.resolve()
+    target = (base / path).resolve()
+
     try:
-        target.relative_to(cwd.resolve())
-    except ValueError:
-        raise ValueError(f"Path escapes working directory:{path!r}")
+        target.relative_to(base)
+    except ValueError as error:
+        raise ModelRetry(
+            f"Path {path!r} escapes the working directory."
+        ) from error
+
     return target
 def _number_lines(
     content: str,
@@ -21,6 +26,9 @@ def _number_lines(
     limit: int | None,
 ) -> str | None:
     lines = content.splitlines()
+
+    if not lines and start == 1:
+        return ""
 
     if start > len(lines):
         return None
@@ -32,46 +40,57 @@ def _number_lines(
     )
 
     return "\n".join(
-        f"{start + i}\t{line}"
-        for i, line in enumerate(window)
+        f"{start + index}\t{line}"
+        for index, line in enumerate(window)
     )
-def _render_numbered(content:str,path:str,*,offset:int|None,limit:int|None)->str:
-    start=1 if offset is None else max(offset,1)
-    line_limit={
-        None
-        if limit is None
-        else max(limit,0)
-    }
-    numbered=_number_lines(content,start,line_limit)
+    
+def _cap_output(content: str) -> str:
+    result = truncate(
+        content,
+        max_lines=settings.max_output_lines,
+        max_bytes=settings.max_output_bytes,
+    )
+
+    text = result.text.rstrip("\n")
+
+    if result.truncated:
+        text += (
+            f"\n\n[Output truncated; "
+            f"full content at {result.full_path}]"
+        )
+
+    return text
+def _render_numbered(
+    content: str,
+    path: str,
+    *,
+    offset: int | None,
+    limit: int | None,
+) -> str:
+    start = 1 if offset is None else max(offset, 1)
+    line_limit = None if limit is None else max(limit, 0)
+
+    numbered = _number_lines(
+        content,
+        start=start,
+        limit=line_limit,
+    )
+
     if numbered is None:
         raise ModelRetry(
             f"{path!r} has no line {start}: "
             "offset is past the end of the file."
         )
-    result=truncate(
-        numbered,
-        max_lines=settings.max_output_lines,
-        max_bytes=settings.max_output_bytes
-    )
-    text = result.text.rstrip("\n")
 
-    if result.truncated:
-        text += (
-            f"\n\n[output truncated to "
-            f"{settings.max_output_lines} lines / "
-            f"{settings.max_output_bytes} bytes; "
-            f"full content at {result.full_path}]"
-        )
-    return numbered
+    return _cap_output(numbered)
 
 def _reject_escaping_pattern(pattern: str) -> None:
-    """stopping model from accessing other dir aside from the main project
-    glob("../*.py")       # ❌
-    glob("../../*.py")    # ❌
-    glob("/home/user/*")  # ❌"""
-    if pattern.startswith("/") or ".." in Path(pattern).parts:
+    parsed = Path(pattern)
+
+    if parsed.anchor or ".." in parsed.parts:
         raise ModelRetry(
-            f"Glob pattern {pattern!r} points outside the working directory."
+            f"Glob pattern {pattern!r} must stay "
+            "relative to the working directory."
         )
 def _contain(base: Path, matches: list[Path]) -> list[Path]:
     return sorted(
@@ -81,7 +100,7 @@ def _contain(base: Path, matches: list[Path]) -> list[Path]:
 def glob(ctx: RunContext[AgentDeps], pattern: str) -> str:
     if needs_approval(ctx):
         logger.debug("glob requires approval (pattern=%r)", pattern)
-        raise needs_approval
+        raise ApprovalRequired
 
     _reject_escaping_pattern(pattern)
 
@@ -93,10 +112,10 @@ def glob(ctx: RunContext[AgentDeps], pattern: str) -> str:
             f"No files match {pattern!r} under the working directory."
         )
 
-    return "\n".join(
-        str(p.relative_to(base))
-        for p in matches
-    )
+    output = "\n".join(
+    str(path.relative_to(base))
+    for path in matches)
+    return _cap_output(output)
 def read(ctx:RunContext[AgentDeps],path:str,offset:int|None=None,limit:int|None=None)->str:
     if needs_approval(ctx):
         logger.debug("read require approval(path=%r)",path)
@@ -171,68 +190,141 @@ def _normalized_with_positions(
         previous_was_space = False
 
     return "".join(normalized).strip(), positions
-def edit(ctx:RunContext[AgentDeps],path:str,old_string:str,new_string:str)->str:
-    decision = ctx.deps.gate("edit")
 
-    if decision == "deny":
-        raise PermissionError(
-            "Edit operation denied"
-        )
-
-    if decision == "ask":
-        approved =await ctx.deps.resolve_permission(f"Allow agent to edit {path!r}?" )
-
-        if not approved:
-            raise ModelRetry(
-                "User denied the edit."
-                )
-    
-    target=_resolve_in_cwd(ctx.deps.cwd,path)
-    if not target.exists():
-        raise FileNotFoundError(f"File not found: {path!r}")
-    if not target.is_file():
-        raise ValueError(f"Not a file: {path!r}")
-    content=target.read_text(encoding="utf-8")
-    if not old_string:
-        raise ValueError(
-            "old string cannot be empty"
-        )
-    count=content.count(old_string)
-#finding exact match first
-    if count == 1:
-        updated = content.replace(
-            old_string,
-            new_string,
-            1,)
-    elif count > 1:
+def _check_mutation(
+    ctx: RunContext[AgentDeps],
+    tool_name: str,
+) -> None:
+    if ctx.deps.gate(tool_name) == "deny":
         raise ModelRetry(
-            f"old_string is ambiguous: "
-            f"found {count} matches"
-        )
-    else:
-        # --------------------------------------------
-        # 2. Exact match failed.
-        # Try normalized whitespace matching.
-        # ---------------------------------------------
-        start, end = _find_normalized_match(
-            content,
-            old_string,
+            f"{tool_name} denied by the permission policy."
         )
 
-        updated = (
-            content[:start]
-            + new_string
-            + content[end:]
+    if needs_approval(ctx):
+        raise ApprovalRequired
+def write(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    content: str,
+) -> str:
+    """Create or replace an entire UTF-8 text file."""
+    _check_mutation(ctx, "write")
+    target = _resolve_in_cwd(ctx.deps.cwd, path)
+
+    if target.exists() and not target.is_file():
+        raise ModelRetry(f"{path!r} is not a file.")
+
+    if not target.parent.is_dir():
+        raise ModelRetry(
+            f"Parent directory does not exist for {path!r}."
         )
 
-    target.write_text(
-        updated,
-        encoding="utf-8",
-    )
+    try:
+        target.write_text(content, encoding="utf-8")
+    except OSError as error:
+        raise ModelRetry(
+            f"Could not write {path!r}: {error}"
+        ) from error
 
-    return (
-        f"Edited {path!r} "
-        f"(replaced 1 occurrence)."
-    )
+    return f"Wrote {path!r}."
+
+def edit(
+    ctx: RunContext[AgentDeps],
+    path: str,
+    old_string: str,
+    new_string: str,
+) -> str:
+    """Replace exactly one occurrence in a UTF-8 text file."""
+    _check_mutation(ctx, "edit")
+    target = _resolve_in_cwd(ctx.deps.cwd, path)
+
+    if not target.is_file():
+        raise ModelRetry(
+            f"Cannot edit {path!r}: file missing or not a file."
+        )
+
+    if not old_string:
+        raise ModelRetry("old_string cannot be empty.")
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise ModelRetry(
+            f"Could not read {path!r}: {error}"
+        ) from error
+
+    first = content.find(old_string)
+
+    if first == -1:
+        raise ModelRetry(
+            "old_string was not found. Read the file again."
+        )
+
+    second = content.find(old_string, first + 1)
+
+    if second != -1:
+        raise ModelRetry(
+            "old_string has multiple matches. "
+            "Provide a larger unique section."
+        )
+
+    updated = content.replace(old_string, new_string, 1)
+
+    try:
+        target.write_text(updated, encoding="utf-8")
+    except OSError as error:
+        raise ModelRetry(
+            f"Could not save {path!r}: {error}"
+        ) from error
+
+    return f"Edited {path!r}: replaced one occurrence."
         
-    
+def grep(
+    ctx: RunContext[AgentDeps],
+    pattern: str,
+    include: str = "**/*.py",
+) -> str:
+    if needs_approval(ctx):
+        raise ApprovalRequired
+
+    if not pattern or "\n" in pattern or "\r" in pattern:
+        raise ModelRetry(
+            "Search text must be non-empty and single-line."
+        )
+
+    _reject_escaping_pattern(include)
+    base = ctx.deps.cwd.resolve()
+
+    excluded = {".git", ".venv", "node_modules", "__pycache__"}
+    candidates = [
+        path
+        for path in base.glob(include)
+        if not excluded.intersection(path.relative_to(base).parts)
+    ]
+
+    matches: list[str] = []
+    skipped = 0
+
+    for target in _contain(base, candidates):
+        try:
+            content = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            skipped += 1
+            continue
+
+        relative = target.relative_to(base).as_posix()
+
+        for number, line in enumerate(content.splitlines(), start=1):
+            if pattern in line:
+                matches.append(f"{relative}:{number}:{line}")
+
+    if not matches:
+        raise ModelRetry(
+            f"No matches for {pattern!r} in readable files "
+            f"matching {include!r}. Skipped {skipped} unreadable files."
+        )
+
+    if skipped:
+        matches.append(f"[Skipped {skipped} unreadable files.]")
+
+    return _cap_output("\n".join(matches))

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic_ai import RunContext
 
 from decode.agent.deps import AgentDeps
-from decode.permissions.types import PermissionMode
+from decode.permission.types import PermissionMode
 
 
 def needs_approval(ctx: RunContext[AgentDeps]) -> bool:

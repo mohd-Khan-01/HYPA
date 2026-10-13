@@ -175,9 +175,9 @@ Pending: real permission gate, full file-tool repair, model integration, framewo
 
 - [ ] CLI accepts natural-language tasks and reports clear errors.
 - [ ] A configured model calls real tools through a bounded loop.
-- [ ] File read/search/edit/write behavior is verified on fixtures.
+- [x] File read/search/edit/write behavior is verified on fixtures.
 - [ ] Denied/refused mutations leave files unchanged.
-- [ ] Workspace containment and output limits are demonstrated.
+- [x] Workspace containment and output limits are demonstrated.
 - [ ] Command results include observed output/exit status and timeout handling.
 - [ ] A toy bug is fixed and verified with meaningful checks.
 - [ ] Conversation save/resume and project-instruction loading work.
@@ -214,3 +214,7 @@ Integration review, 11 October: AgentDeps now uses PermissionOutcome and Permiss
 Day 1 closed by the learner on 11 October 2026 after the final saved CLI check confirmed PermissionGate imports and default-mode wiring. Completed scope: permission mode/kind table, all 12 combinations, unknown-tool policy, shared dependency types, event spelling cleanup, and working demo containment/read/output-limit integration. The learner asked about dynamic modes; switching the shared gate's mode was explained. Policy, containment, and truncation responsibilities were clarified after the learner initially attributed path rejection to truncation. Independent explanation of that distinction can be revisited briefly on Day 2. A fresh interactive CLI run after the last wiring save was not independently verified; the earlier isolated behavior checks passed.
 
 The learner plans to push the code themselves and continue Day 2 tomorrow, 12 October 2026. No push or scheduling action was requested of the assistant. Day 2 starts with the existing files.py syntax/import blockers, then reusable containment, numbered reads, glob/search, and exact write/edit tools with denied-operation checks. Deferred defects include await in a synchronous edit function, missing approval implementation, and the factory's pydant_ai typo; these are not completed model/tool features.
+
+Day 2 started at the learner's request on 11 October 2026; the earlier planned continuation date is superseded. Initial source review: files.py still contains await in synchronous edit, incorrect numbered-render arguments/set/return, and invalid approval raising. approval.py is now populated, but imports decode.permissions.types while the local package is decode.permission. Today starts with an implementation summary, then repair and verify read/glob before adding grep/write/exact edit. No code edits were requested or applied by the assistant.
+
+Day 2 implementation and verification closed on 13 October 2026. The learner implemented read/glob/literal grep/write/exact edit, shared containment and output rendering, and deferred-approval guards. Reported checks passed for numbered reads, path/glob rejections, grep evidence and invalid requests, mutation success/rejections/unchanged bytes, approval pause, and all output-limit/spill integrations. Reusable scripts are now saved as test/file_test.py and test/output_test.py. The assistant independently verified source compilation without executing file-creating tests; no live model or full deferred-resume loop has been verified. Concepts explained include RunContext, ModelRetry versus ApprovalRequired, offset/limit versus safety caps, exact-match ambiguity including overlaps, fixtures/postconditions, UTF-8 bytes, the first-long-line exception, and complete spill evidence. Independent explain-back for these Day 2 concepts remains unassessed; revisit briefly during Day 3 rather than claiming it was demonstrated. Next: fix the factory import, select/configure one supported provider/model, register tools, and drive a bounded read-only model/tool loop.
