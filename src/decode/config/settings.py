@@ -1,10 +1,17 @@
-from dataclasses import dataclass
+from dataclasses import dataclass,field
+import os
+from dotenv import load_dotenv
 
-
+load_dotenv()
 @dataclass(frozen=True, slots=True)
 class Settings:
-    max_output_lines: int = 2000
-    max_output_bytes: int = 50_000
+    max_output_lines: int = 100
+    max_output_bytes: int = 5000
+    groq_model: str = field(
+        default_factory=lambda: os.getenv(
+            "GROQ_MODEL", "openai/gpt-oss-20b"
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.max_output_lines <= 0:

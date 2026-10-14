@@ -1,5 +1,11 @@
 from decode.entities.events import AssistantTextDelta,Event,ToolCallStarted,ToolResult
-from decode.agent.demo import demo_turn
+import os
+
+from pydantic_ai.models.groq import GroqModel, GroqModelSettings
+
+from decode.agent.factory import build_agent
+from decode.agent.loop import run_turn
+from decode.config.settings import settings
 
 from pathlib import Path
 
@@ -27,23 +33,49 @@ def render_event(event:Event)->None:
     elif isinstance(event,ToolResult):
         print(f"{event.tool_name}:{event.result}")
 
-def run_cli() -> None:
+async def _run_cli() -> None:
+    if not os.getenv("GROQ_API_KEY"):
+        raise SystemExit("Set GROQ_API_KEY before starting HYPA.")
+
+    model = GroqModel(
+        settings.groq_model,
+        settings=GroqModelSettings(
+            max_tokens=1024,
+            timeout=30,
+            groq_reasoning_effort="low",
+        ),
+    )
+    agent = build_agent(model)
+
     deps = AgentDeps(
-    cwd=Path.cwd(),
-    emit=render_event,
-    gate=PermissionGate(mode=PermissionMode.DEFAULT),
-    resolve_permission=ask_permission,
-    resolve_user_question=question_unavailable,
-)
+        cwd=Path.cwd(),
+        emit=render_event,
+        gate=PermissionGate(PermissionMode.DEFAULT),
+        resolve_permission=ask_permission,
+        resolve_user_question=question_unavailable,
+    )
+
     while True:
-        task = input("What should HYPA do? ").strip()
+        task = input("\nWhat should HYPA do? ").strip()
 
         if not task:
-            print("Please enter a task.")
             continue
 
-        if task == "exit":
+        if task.lower() == "exit":
             print("Goodbye!")
             break
-        
-        asyncio.run(demo_turn(task, deps=deps))
+
+        print("Thinking...", flush=True)
+
+        try:
+            result = await run_turn(agent, task, deps)
+        except Exception as error:
+            print(f"\nTurn failed: {error}")
+            continue
+
+        print(f"\nHYPA: {result.output}")
+        print(f"Model requests: {result.usage.requests}")
+
+
+def run_cli() -> None:
+    asyncio.run(_run_cli())

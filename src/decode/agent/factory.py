@@ -1,11 +1,24 @@
-from pydant_ai import Agent
-from decode.agent.deps import AgentDeps
-from decode.tools.files import read
+from pydantic_ai import Agent, DeferredToolRequests
+from pydantic_ai.models import Model
 
-def build_agent()->Agent[AgentDeps,str]:
-    agent = Agent(
-        "openai:gpt-5.6",
+from decode.agent.deps import AgentDeps
+from decode.tools.registry import register_read_only_tools
+
+
+def build_agent(
+    model: Model,
+) -> Agent[AgentDeps, str | DeferredToolRequests]:
+    agent: Agent[AgentDeps, str | DeferredToolRequests] = Agent(
+        model,
         deps_type=AgentDeps,
+        output_type=[str, DeferredToolRequests],
+        instructions=(
+            "You are HYPA, a coding assistant. "
+            "Use tools to inspect files before making claims "
+            "about their contents. "
+            "Never invent tool results."
+        ),
     )
-    agent.tool(read)
+
+    register_read_only_tools(agent)
     return agent

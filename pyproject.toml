@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "groq>=1.7.0",
     "pydantic-ai>=2.42.0",
 ]
 
