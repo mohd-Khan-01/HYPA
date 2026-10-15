@@ -8,7 +8,7 @@ from decode.agent.loop import run_turn
 from decode.config.settings import settings
 
 from pathlib import Path
-
+from pydantic_ai.messages import ModelMessage
 from decode.agent.deps import AgentDeps
 from decode.permission.gate import PermissionGate
 from decode.permission.types import PermissionMode
@@ -46,15 +46,15 @@ async def _run_cli() -> None:
         ),
     )
     agent = build_agent(model)
-
+    gate = PermissionGate(PermissionMode.DEFAULT)
     deps = AgentDeps(
         cwd=Path.cwd(),
         emit=render_event,
-        gate=PermissionGate(PermissionMode.DEFAULT),
+        gate=gate,
         resolve_permission=ask_permission,
         resolve_user_question=question_unavailable,
     )
-
+    history: list[ModelMessage] = []
     while True:
         task = input("\nWhat should HYPA do? ").strip()
 
@@ -64,14 +64,40 @@ async def _run_cli() -> None:
         if task.lower() == "exit":
             print("Goodbye!")
             break
+        parts = task.split()
+        if task.lower() == "/clear":
+            history = []
+            print("Conversation history cleared.")
+            continue
+        if parts[0].lower() == "/mode":
+            if len(parts) == 1:
+                print(f"Current mode: {gate.mode.value}")
+            elif len(parts) != 2:
+                print("Usage: /mode default|plan|edit|bypass")
+            else:
+                try:
+                    selected_mode = PermissionMode(parts[1].lower())
+                except ValueError:
+                    print("Unknown mode. Use default, plan, edit, or bypass.")
+                else:
+                    gate.mode = selected_mode
+                    print(f"Permission mode: {gate.mode.value}")
 
+            continue
         print("Thinking...", flush=True)
 
         try:
-            result = await run_turn(agent, task, deps)
+            result = await run_turn(
+                agent,
+                task,
+                deps,
+                message_history=history,
+            )
         except Exception as error:
             print(f"\nTurn failed: {error}")
             continue
+
+        history = result.all_messages()
 
         print(f"\nHYPA: {result.output}")
         print(f"Model requests: {result.usage.requests}")

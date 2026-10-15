@@ -2,7 +2,7 @@ from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.models import Model
 
 from decode.agent.deps import AgentDeps
-from decode.tools.registry import register_read_only_tools
+from decode.tools.registry import register_file_tools
 
 
 def build_agent(
@@ -16,9 +16,11 @@ def build_agent(
             "You are HYPA, a coding assistant. "
             "Use tools to inspect files before making claims "
             "about their contents. "
-            "Never invent tool results."
+            "Never invent tool results. "
+            "Respect tool refusals and policy denials. "
+            "Do not retry a refused change through another tool."
         ),
     )
 
-    register_read_only_tools(agent)
+    register_file_tools(agent)
     return agent

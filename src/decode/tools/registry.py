@@ -1,14 +1,22 @@
 from pydantic_ai import Agent, DeferredToolRequests
 
 from decode.agent.deps import AgentDeps
-from decode.tools.files import glob, grep, read
+from decode.tools.files import edit, glob, grep, read, write
 
 
 READ_ONLY_TOOLS = (read, glob, grep)
+FILE_TOOLS = (*READ_ONLY_TOOLS, write, edit)
 
 
 def register_read_only_tools(
     agent: Agent[AgentDeps, str | DeferredToolRequests],
 ) -> None:
     for tool in READ_ONLY_TOOLS:
+        agent.tool(tool)
+
+
+def register_file_tools(
+    agent: Agent[AgentDeps, str | DeferredToolRequests],
+) -> None:
+    for tool in FILE_TOOLS:
         agent.tool(tool)

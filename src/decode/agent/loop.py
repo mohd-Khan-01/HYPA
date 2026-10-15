@@ -1,17 +1,20 @@
 from pydantic_ai import Agent, DeferredToolRequests
-from pydantic_ai.messages import ToolReturnPart
+from pydantic_ai.messages import ModelMessage, ToolReturnPart
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import DeferredToolResults
 from pydantic_ai.usage import RunUsage, UsageLimits
 
 from decode.agent.deps import AgentDeps
 from decode.entities.events import ToolCallStarted, ToolResult
+import json
 
+from decode.permission.types import PermissionOutcome
 
 async def run_turn(
     agent: Agent[AgentDeps, str | DeferredToolRequests],
     prompt: str,
     deps: AgentDeps,
+    message_history:list[ModelMessage] |None=None
 ) -> AgentRunResult[str | DeferredToolRequests]:
     usage = RunUsage()
     limits = UsageLimits(
@@ -25,11 +28,12 @@ async def run_turn(
         deps=deps,
         usage=usage,
         usage_limits=limits,
+        message_history=message_history
     )
 
     while True:
-        # History is carried across resume legs; emit each result once.
-        for message in result.all_messages():
+        #Display results produced by this run leg, excluding supplied history.
+        for message in result.new_messages():
             for part in message.parts:
                 if (
                     isinstance(part, ToolReturnPart)
@@ -58,15 +62,24 @@ async def run_turn(
         for call in pending.approvals:
             decision = deps.gate(call.tool_name)
 
-            if decision == "ask":
-                raise RuntimeError(
-                    "Interactive approval handling comes next. "
-                    "Only read-only tools should be registered."
+            if decision == PermissionOutcome.ASK:
+                arguments = json.dumps(
+                    call.args_as_dict(),
+                    indent=2,
+                    ensure_ascii=False,
                 )
+                description = (
+                    f"Allow tool {call.tool_name!r} "
+                    f"(call {call.tool_call_id})?\n"
+                    f"Arguments:\n{arguments}\n"
+                )
+                approved = await deps.resolve_permission(description)
+            else:
+                approved = decision == PermissionOutcome.ALLOW
 
-            approvals[call.tool_call_id] = decision == "allow"
+            approvals[call.tool_call_id] = approved
 
-            if decision == "allow":
+            if approved:
                 deps.emit(ToolCallStarted(tool_name=call.tool_name))
 
         result = await agent.run(
