@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local learning notes and exercise scratch files
+/AGENTS.md
+/LEARNING_PLAN.md
+/ROADMAP_10_DAYS.md
+/DAY*_FINISH.md
+/day*_scratch.md
