@@ -2,7 +2,7 @@ from pydantic_ai import Agent, DeferredToolRequests
 from pydantic_ai.models import Model
 
 from decode.agent.deps import AgentDeps
-from decode.tools.registry import register_file_tools
+from decode.tools.registry import register_tools
 
 
 def build_agent(
@@ -18,9 +18,15 @@ def build_agent(
             "about their contents. "
             "Never invent tool results. "
             "Respect tool refusals and policy denials. "
-            "Do not retry a refused change through another tool."
+            "Do not retry a refused change through another tool. "
+            "For execute, pass argv as a list and use python -B "
+            "for Python checks. "
+            "Only report a check passed after observing its "
+            "successful exit code and relevant output. "
+            "Command output may be truncated; say so when "
+            "that limits your conclusions."
         ),
     )
 
-    register_file_tools(agent)
+    register_tools(agent)
     return agent
