@@ -21,3 +21,4 @@ class AgentDeps:
     resolve_permission: PermissionResolver
     resolve_user_question: UserQuestionResolver
     task_store: list = field(default_factory=list)
+    project_instructions: str = ""

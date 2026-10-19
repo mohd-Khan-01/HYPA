@@ -13,9 +13,9 @@ from decode.agent.deps import AgentDeps
 from decode.permission.gate import PermissionGate
 from decode.permission.types import PermissionMode
 import asyncio
-
-
-
+from pydantic import ValidationError
+from decode.agent.project_memory import load_project_instructions
+from decode.agent.session import load_session, save_session, session_path   
 
 async def refuse_permission(description: str) -> bool:
     return False
@@ -47,12 +47,19 @@ async def _run_cli() -> None:
     )
     agent = build_agent(model)
     gate = PermissionGate(PermissionMode.DEFAULT)
+    project_text, notice = load_project_instructions(Path.cwd())
+
+    if notice:
+        print(notice)
+    elif project_text:
+        print("Loaded project instructions from .hypa/project.md.")
     deps = AgentDeps(
         cwd=Path.cwd(),
         emit=render_event,
         gate=gate,
         resolve_permission=ask_permission,
         resolve_user_question=question_unavailable,
+        project_instructions=project_text
     )
     history: list[ModelMessage] = []
     while True:
@@ -82,6 +89,30 @@ async def _run_cli() -> None:
                 else:
                     gate.mode = selected_mode
                     print(f"Permission mode: {gate.mode.value}")
+
+            continue
+        if parts[0].lower() in ("/save", "/resume"):
+            command = parts[0].lower()
+
+            if len(parts) != 2:
+                print(f"Usage: {command} NAME")
+                continue
+
+            try:
+                path = session_path(deps.cwd, parts[1])
+
+                if command == "/save":
+                    save_session(path, history)
+                    print(f"Saved {len(history)} messages to {path}")
+                else:
+                    restored = load_session(path)
+                    history = restored
+                    print(f"Resumed {len(history)} messages from {path}")
+
+            except ValidationError:
+                print("Could not resume: the session JSON is invalid.")
+            except (OSError, ValueError) as error:
+                print(f"Session command failed: {error}")
 
             continue
         print("Thinking...", flush=True)

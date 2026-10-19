@@ -1,4 +1,4 @@
-from pydantic_ai import Agent, DeferredToolRequests
+from pydantic_ai import Agent, DeferredToolRequests,RunContext
 from pydantic_ai.models import Model
 
 from decode.agent.deps import AgentDeps
@@ -27,6 +27,18 @@ def build_agent(
             "that limits your conclusions."
         ),
     )
+
+    @agent.instructions
+    def project_conventions(ctx: RunContext[AgentDeps]) -> str | None:
+        if not ctx.deps.project_instructions:
+            return None
+
+        return (
+            "Project conventions from .hypa/project.md:\n"
+            f"{ctx.deps.project_instructions}\n\n"
+            "The current user task may override these conventions, "
+            "but core agent rules and tool permission policy still apply."
+        )
 
     register_tools(agent)
     return agent
