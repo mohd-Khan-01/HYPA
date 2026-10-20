@@ -19,6 +19,7 @@ class PermissionGate:
             "grep": ToolKind.READ_ONLY,
             "write": ToolKind.FILE_EDIT,
             "edit": ToolKind.FILE_EDIT,
+            "load_skill": ToolKind.READ_ONLY,        
         }
         kind = kinds.get(tool_name, ToolKind.OTHER)
 

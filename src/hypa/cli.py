@@ -16,6 +16,8 @@ import asyncio
 from pydantic import ValidationError
 from decode.agent.project_memory import load_project_instructions
 from decode.agent.session import load_session, save_session, session_path   
+from decode.agent.compaction import build_summarizer, compact_history
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 async def refuse_permission(description: str) -> bool:
     return False
@@ -46,6 +48,7 @@ async def _run_cli() -> None:
         ),
     )
     agent = build_agent(model)
+    summarizer = build_summarizer(model)
     gate = PermissionGate(PermissionMode.DEFAULT)
     project_text, notice = load_project_instructions(Path.cwd())
 
@@ -113,6 +116,26 @@ async def _run_cli() -> None:
                 print("Could not resume: the session JSON is invalid.")
             except (OSError, ValueError) as error:
                 print(f"Session command failed: {error}")
+
+            continue
+        if parts[0].lower() == "/compact":
+            if len(parts) != 1:
+                print("Usage: /compact")
+                continue
+
+            print("Compacting older conversation...", flush=True)
+
+            try:
+                candidate = await compact_history(history, summarizer)
+                before = len(ModelMessagesTypeAdapter.dump_json(history))
+                after = len(ModelMessagesTypeAdapter.dump_json(candidate))
+            except Exception as error:
+                print(f"Compaction failed; history unchanged: {error}")
+            else:
+                history = candidate
+                print(
+                    f"Compacted serialized history: {before} -> {after} bytes."
+                )
 
             continue
         print("Thinking...", flush=True)

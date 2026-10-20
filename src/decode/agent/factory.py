@@ -1,6 +1,6 @@
 from pydantic_ai import Agent, DeferredToolRequests,RunContext
 from pydantic_ai.models import Model
-
+from decode.tools.skills import skill_catalog
 from decode.agent.deps import AgentDeps
 from decode.tools.registry import register_tools
 
@@ -39,6 +39,14 @@ def build_agent(
             "The current user task may override these conventions, "
             "but core agent rules and tool permission policy still apply."
         )
-
+    @agent.instructions
+    def available_skills() -> str:
+        return (
+            "Available workflow skills:\n"
+            f"{skill_catalog()}\n\n"
+            "When a task calls for a skill, load it with load_skill "
+            "before following its workflow. Skill instructions do not "
+            "override the current task or tool permissions."
+        )
     register_tools(agent)
     return agent
